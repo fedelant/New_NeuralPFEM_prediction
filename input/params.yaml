@@ -1,0 +1,55 @@
+# ============================================================
+# NeuralPFEM-3DCP prediction input
+# ============================================================
+
+# Mode
+#  single  -> run prediction for one input case
+#  dataset -> run prediction for all cases in a CSV file
+mode: single
+
+# ------------------------------------------------------------
+# Parameter definitions
+# ------------------------------------------------------------
+parameters:
+  nozzle_radius:
+    unit: mm
+
+  nozzle_height:
+    unit: mm
+
+  printing_velocity:
+    unit: m/s
+
+  flow_velocity:
+    unit: m/s
+
+  density:
+    unit: kg/m^3
+
+  yield_stress:
+    unit: Pa
+
+  viscosity:
+    unit: Pa*s
+
+
+# ------------------------------------------------------------
+# Single prediction
+# ------------------------------------------------------------
+single:
+  nozzle_radius: 0.01
+  nozzle_height: 0.01
+  printing_velocity: 0.14
+  flow_velocity: 0.12
+
+  density: 2227.0
+  yield_stress: 681.0
+  viscosity: 12.0
+
+
+# ------------------------------------------------------------
+# Dataset prediction
+# ------------------------------------------------------------
+dataset:
+  file: data/test.csv
+  separator: ","

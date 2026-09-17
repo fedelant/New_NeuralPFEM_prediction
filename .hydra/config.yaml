@@ -1,0 +1,39 @@
+model_name: model1
+model_file: model-1150000.pt
+input_sequence_length: 3
+latent_dim: 192
+mlp_hidden_dim: 192
+n_layers: 2
+n_attn_heads: 4
+n_attn_layers: 2
+attn_dropout: 0.1
+spatial_norm_weight: 0.1
+vel_norm_weight: 0.01
+press_norm_weight: 1.0e-06
+rho_norm_scale: 1000000.0
+tau0_norm_scale: 100000.0
+vel_mean:
+- 0.0115071675
+- 0
+- -0.0112012923
+vel_std:
+- 0.02875795
+- 0.0074958
+- 0.02795588
+press_mean: 143.83357
+press_std: 640.27765
+pos_max:
+- 0.22311932
+- 0.2229041
+- 0.29954457
+pos_min:
+- -0.2234359
+- -0.22346082
+- -0.00244924
+dt: 0.02
+toolpath_type: dat
+toolpath_n_points: 100
+toolpath_scale: 7
+toolpath_radius: 2
+toolpath_amplitude: 0.3
+toolpath_wavelength: 1.5
