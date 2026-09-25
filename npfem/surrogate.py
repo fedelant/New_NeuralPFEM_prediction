@@ -110,8 +110,7 @@ class Surrogate(nn.Module):
     def _add_nodes_free_fall(self, nozzle_vel_world: torch.Tensor):
         if gv.cells is None:
             return
-        cells = torch.as_tensor(gv.cells, dtype=torch.long, device=gv.device)
-        gv.cells = cells
+        cells = gv.cells
         nozzle_cells = cells[(cells < gv.n_nozzle_nodes).any(dim=1)]
         nozzle_side, deposition_side = self._boundary_nodes(nozzle_cells, gv.n_nozzle_nodes)
         if deposition_side.numel() == 0:
@@ -286,8 +285,6 @@ class Surrogate(nn.Module):
         prev_cells = gv.cells
         if prev_cells is None:
             return
-        prev_cells = torch.as_tensor(prev_cells, dtype=torch.long, device=gv.device)
-        gv.cells = prev_cells
         mask_contains_eucl = (prev_cells < gv.n_nozzle_nodes).any(dim=1)
         relevant_cells = prev_cells[mask_contains_eucl]
         connected_eucl, connected_non = self._boundary_nodes(relevant_cells, gv.n_nozzle_nodes)
