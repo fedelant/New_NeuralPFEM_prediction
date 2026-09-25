@@ -169,9 +169,9 @@ class Surrogate(nn.Module):
         self._local_remesh()
         spatial_mask = gv.active == 1
         self._forward_predict(spatial_mask, nozzle_center, tp)
-        fs_tags = torch.unique(self.mesher._boundary_faces_3d(torch.as_tensor(gv.cells, dtype=torch.long, device=gv.device)))
-        tags = np.arange(gv.position.shape[0])
-        gv.free_surf = np.isin(tags, fs_tags.cpu().numpy()).astype(np.int32)
+        fs_tags = torch.unique(self.mesher._boundary_faces_3d(gv.cells))
+        gv.free_surf = torch.zeros(gv.position.shape[0], dtype=torch.bool, device=gv.device)
+        gv.free_surf[fs_tags] = True
 
     # ------------------------------------------------------------------
     # Z transition
@@ -260,25 +260,24 @@ class Surrogate(nn.Module):
         drop_global = active_layer2_idx[min_distances < cull_radius]
         if drop_global.numel() == 0:
             return
-        keep = np.ones(gv.position.shape[0], dtype=bool)
-        drop_global_np = drop_global.detach().cpu().numpy()
-        keep[drop_global_np] = False
+        keep = torch.ones(gv.position.shape[0], dtype=torch.bool, device=gv.device)
+        keep[drop_global] = False
         keep[:gv.n_nozzle_nodes] = True
-        old_cells = gv.cells.copy() if gv.cells is not None else None
-        if old_cells is not None and old_cells.size > 0:
-            cell_keep = keep[old_cells].all(axis=1)
+        old_cells = gv.cells
+        if old_cells is not None and old_cells.numel() > 0:
+            cell_keep = keep[old_cells].all(dim=1)
             surviving_cells = old_cells[cell_keep]
-            old_to_new = np.full(keep.shape[0], -1, dtype=np.int64)
-            old_to_new[keep] = np.arange(keep.sum(), dtype=np.int64)
+            old_to_new = torch.cumsum(keep.to(torch.long), dim=0) - 1
             gv.cells = old_to_new[surviving_cells]
-        keep_t = torch.from_numpy(keep).to(gv.device)
-        gv.position = gv.position[keep_t]
-        gv.prev_velocities = gv.prev_velocities[keep_t]
-        gv.prev_pressures = gv.prev_pressures[keep_t]
-        gv.active = gv.active[keep_t]
-        gv.node_layer = gv.node_layer[keep_t]
-        gv.velocity = gv.velocity[keep_t]
-        gv.pressure = gv.pressure[keep_t]
+        gv.position = gv.position[keep]
+        gv.prev_velocities = gv.prev_velocities[keep]
+        gv.prev_pressures = gv.prev_pressures[keep]
+        gv.active = gv.active[keep]
+        gv.node_layer = gv.node_layer[keep]
+        gv.velocity = gv.velocity[keep]
+        gv.pressure = gv.pressure[keep]
+        if gv.free_surf is not None:
+            gv.free_surf = gv.free_surf[keep]
 
     # ------------------------------------------------------------------
     # Node insertion
@@ -304,7 +303,7 @@ class Surrogate(nn.Module):
         new_nodes = gv.position[connected_eucl].clone()
         new_nodes[:, 2] = new_z
         n_new = new_nodes.shape[0]
-        cells_old = torch.from_numpy(relevant_cells).long().to(gv.device)
+        cells_old = torch.as_tensor(relevant_cells, dtype=torch.long, device=gv.device)
         verts = gv.position[cells_old]
         x0, x1, x2, x3 = verts[:, 0], verts[:, 1], verts[:, 2], verts[:, 3]
         T = torch.stack([x1 - x0, x2 - x0, x3 - x0], dim=-1)
@@ -332,7 +331,7 @@ class Surrogate(nn.Module):
             new_velocities[has_tet] = (bary_sel[:, :, None, None] * tet_vels).sum(dim=1)
             new_pressures[has_tet] = (bary_sel[:, :, None] * tet_press).sum(dim=1)
         if (~has_tet).any():
-            connected_nodes_t = torch.from_numpy(np.union1d(connected_eucl, connected_non)).long().to(gv.device)
+            connected_nodes_t = torch.unique(torch.cat([connected_eucl, connected_non]))
             nearest = torch.cdist(new_nodes[~has_tet], gv.position[connected_nodes_t]).argmin(dim=1)
             new_velocities[~has_tet] = gv.prev_velocities[connected_nodes_t[nearest]].to(new_velocities.dtype)
             new_pressures[~has_tet] = gv.prev_pressures[connected_nodes_t[nearest]].to(new_pressures.dtype)
@@ -344,7 +343,7 @@ class Surrogate(nn.Module):
         gv.prev_pressures = torch.cat([gv.prev_pressures, new_pressures], dim=0)
         gv.active = torch.cat([gv.active, torch.ones(n_new, dtype=gv.active.dtype, device=gv.device)])
         gv.node_layer = torch.cat([gv.node_layer, new_layers], dim=0)
-        gv.free_surf = np.concatenate([gv.free_surf, np.zeros(n_new, dtype=np.int32)], axis=0)
+        gv.free_surf = torch.cat([gv.free_surf, torch.zeros(n_new, dtype=torch.bool, device=gv.device)], dim=0)
 
     def filter_mesh(self, alpha: float = 300.0):
         """Applies global node rules to filter the current mesh."""
@@ -426,41 +425,30 @@ class Surrogate(nn.Module):
     # ------------------------------------------------------------------
 
     def _local_remesh(self):
-        active = (gv.active == 1).detach().cpu().numpy()
+        active = gv.active == 1
         cells = gv.cells
-        if cells is None or cells.size == 0:
+        if cells is None or cells.numel() == 0:
             return
-        # Identify which cells to keep and which to discard
+
         cell_active = active[cells]
-        any_active = cell_active.any(axis=1)
+        any_active = cell_active.any(dim=1)
         kept_cells = cells[~any_active]
         discarded_cells = cells[any_active]
-        # Collect ALL nodes involved in the discarded region
-        # This inherently includes the inactive nodes that form the interface boundary
-        discarded_nodes = np.unique(discarded_cells)
-        # Find any active nodes that aren't in the mesh yet
-        meshed_nodes = np.unique(cells)
-        unmeshed_active_nodes = np.where(active)[0]
-        unmeshed_active_nodes = unmeshed_active_nodes[~np.isin(unmeshed_active_nodes, meshed_nodes)]
-        # Combine to form the exact set of nodes we need to remesh
-        nodes_to_remesh = np.unique(np.concatenate((discarded_nodes, unmeshed_active_nodes)))
-        if nodes_to_remesh.size < 4:
-            return
-        # Generate the mesh in one single pass to bridge active and inactive boundaries
-        # Pass the global indices so `generate_mesh` can apply node rules correctly
-        nodes_to_remesh_tensor = torch.from_numpy(nodes_to_remesh).to(gv.position.device)
-        new_cells_local, _ = self.mesher.generate_mesh(
-            gv.position[nodes_to_remesh], 
-        )
-        new_cells = nodes_to_remesh[new_cells_local.cpu().numpy()]
-        # Prevent overlap with kept_cells
-        # The mesher might build tetrahedra across the concavities of the inactive boundary.
-        # Since kept_cells is exactly the volume of cells with 0 active nodes, 
-        # dropping new cells made entirely of inactive nodes prevents overlap perfectly.
-        new_cell_active = active[new_cells]
-        valid_new_cells = new_cells[new_cell_active.any(axis=1)]
 
-        gv.cells = np.concatenate((kept_cells, valid_new_cells), axis=0)
+        discarded_nodes = torch.unique(discarded_cells)
+        meshed_nodes = torch.unique(cells)
+        active_nodes = torch.where(active)[0]
+        unmeshed_active_nodes = active_nodes[~torch.isin(active_nodes, meshed_nodes)]
+        nodes_to_remesh = torch.unique(torch.cat([discarded_nodes, unmeshed_active_nodes]))
+        if nodes_to_remesh.numel() < 4:
+            return
+
+        new_cells_local, _ = self.mesher.generate_mesh(gv.position[nodes_to_remesh])
+        new_cells = nodes_to_remesh[new_cells_local]
+        new_cell_active = active[new_cells]
+        valid_new_cells = new_cells[new_cell_active.any(dim=1)]
+
+        gv.cells = torch.cat((kept_cells, valid_new_cells), dim=0)
         self.filter_mesh()
 
     # ------------------------------------------------------------------
