@@ -74,36 +74,36 @@ def build_toolpath(printing_speed: float, flow_speed: float):
         )
     if gv.cfg.toolpath_type == "circle":
         return toolpath.make_circle(
-            printing_speed, 
-            flow_speed, 
-            radius=0.1, 
-            n_points=100, 
+            printing_speed,
+            flow_speed,
+            radius=0.1,
+            n_points=100,
             device=gv.device)
     if gv.cfg.toolpath_type == "square":
         return toolpath.make_square(
-            printing_speed, 
-            flow_speed, 
+            printing_speed,
+            flow_speed,
             side=0.15,
             corner_radius=0.03,
-            n_points=100, 
+            n_points=100,
             device=gv.device)
     if gv.cfg.toolpath_type == "triangle":
         return toolpath.make_triangle(
-            printing_speed, 
-            flow_speed, 
+            printing_speed,
+            flow_speed,
             side=0.2,
             corner_radius=0.03,
-            n_points=100, 
+            n_points=100,
             device=gv.device)
     if gv.cfg.toolpath_type == "file":
         return toolpath.make_from_file(
-            filepath="./input/toolpaths/toolpath_medium.txt", 
-            scale=1,#cfg.toolpath_scale,
+            filepath="./input/toolpaths/toolpath_medium.txt",
+            scale=1,
             printing_speed=printing_speed,
             flow_speed=flow_speed,
             device=gv.device,
         )
-    
+
     """
     other to be added and to understand whats the best way to handle this.
     """
@@ -173,7 +173,7 @@ def initialize_prediction_state() -> None:
         device=gv.device,
     )
     gv.n_nozzle_nodes = gv.nozzle_ids.shape[0]
-    gv.node_layer = torch.ones(gv.position.shape[0], dtype=torch.int, device=gv.device) 
+    gv.node_layer = torch.ones(gv.position.shape[0], dtype=torch.int, device=gv.device)
     gv.active = torch.ones(gv.position.shape[0], dtype=torch.bool, device=gv.device)
 
     gv.vel_mean = torch.tensor(gv.cfg.vel_mean, device=gv.device)
@@ -215,22 +215,25 @@ def run_prediction() -> None:
     gv.position = gv.position + (toolpath_start - nozzle_center_0)
 
     gv.tags = np.arange(0, gv.position.shape[0])
-    gv.cells = np.empty((0, 4))
+    gv.cells = torch.empty((0, 4), dtype=torch.long, device=gv.device)
 
     _reset_prediction_outputs()
     write_step = 0
     for step in tqdm(
         range(5000), desc=f"Predicting {gv.example_i}"
-    ):  # fino alla fine del toolpath, o fino a un numero massimo di step
+    ):
         gv.model.learned_update()
-        if step % 3 == 0 : # make cfg.
+        if step % 3 == 0:
             write_output.write_step(
                 gv.position,
                 gv.velocity,
                 gv.pressure,
                 gv.cells,
                 output_dir=os.path.join(
-                    ".", "output", gv.cfg.model_name, f"{gv.example_i}_vtk"
+                    ".",
+                    "output",
+                    gv.cfg.model_name,
+                    f"{gv.example_i}_vtk",
                 ),
                 step_idx=write_step,
                 strain_rate=None,
@@ -329,7 +332,7 @@ def run() -> None:
 
             with torch.autocast(
                 device_type=gv.device.type,
-                enabled=True,  # cfg.use_amp,
+                enabled=True,
             ):
                 run_prediction()
 
