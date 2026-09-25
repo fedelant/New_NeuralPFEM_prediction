@@ -347,7 +347,7 @@ class Surrogate(nn.Module):
         if gv.cells is None or gv.cells.numel() == 0:
             return
 
-        cells = gv.cells.to(device=gv.device, dtype=torch.long)
+        cells = gv.cells
         num_nodes = gv.position.shape[0]
 
         # 1. Identify node types using global indices
@@ -360,7 +360,7 @@ class Surrogate(nn.Module):
         has_new = new_nodes[cells].any(dim=1)
         internal_cells = others[cells].any(dim=1)
 
-        free_surf = torch.as_tensor(gv.free_surf, dtype=torch.bool, device=gv.device)
+        free_surf = gv.free_surf
         all_free_surf = free_surf[cells].all(dim=1)
 
         simplex_layers = gv.node_layer[cells]
