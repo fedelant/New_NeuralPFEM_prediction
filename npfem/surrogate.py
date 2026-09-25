@@ -129,10 +129,10 @@ class Surrogate(nn.Module):
         gv.node_layer = torch.cat([gv.node_layer, new_layers], dim=0)
 
     def _remesh_global(self):
-        tags = np.arange(gv.position.shape[0])
         cells, fs_tags = self.mesher.generate_initial_mesh(gv.position)
-        gv.cells = cells.cpu().numpy()
-        gv.free_surf = np.isin(tags, fs_tags.cpu().numpy()).astype(np.int32)
+        gv.cells = cells
+        gv.free_surf = torch.zeros(gv.position.shape[0], dtype=torch.bool, device=gv.device)
+        gv.free_surf[fs_tags] = True
         self.filter_mesh()
 
     # ------------------------------------------------------------------
