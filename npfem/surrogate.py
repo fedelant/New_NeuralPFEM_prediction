@@ -344,10 +344,10 @@ class Surrogate(nn.Module):
 
     def filter_mesh(self, alpha: float = 300.0):
         """Applies global node rules to filter the current mesh."""
-        if gv.cells is None or gv.cells.size == 0:
+        if gv.cells is None or gv.cells.numel() == 0:
             return
 
-        cells = torch.as_tensor(gv.cells, dtype=torch.long, device=gv.device)
+        cells = gv.cells.to(device=gv.device, dtype=torch.long)
         num_nodes = gv.position.shape[0]
 
         # 1. Identify node types using global indices
@@ -389,13 +389,13 @@ class Surrogate(nn.Module):
 
         # 4. Update the global cells
         filtered_cells = cells[mask]
-        gv.cells = filtered_cells.cpu().numpy()
+        gv.cells = filtered_cells
 
         # 5. Recompute the boundary/free surface tags now that invalid cells are gone
         if filtered_cells.numel() > 0:
             fs_tags = torch.unique(self.mesher._boundary_faces_3d(filtered_cells))
-            tags = np.arange(num_nodes)
-            gv.free_surf = np.isin(tags, fs_tags.cpu().numpy()).astype(np.int32)
+            gv.free_surf = torch.zeros(num_nodes, dtype=torch.bool, device=gv.device)
+            gv.free_surf[fs_tags] = True
 
     # ------------------------------------------------------------------
     # Active region
