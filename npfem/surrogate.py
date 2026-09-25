@@ -456,18 +456,22 @@ class Surrogate(nn.Module):
     # ------------------------------------------------------------------
 
     def _forward_predict(self, spatial_mask: torch.Tensor, nozzle_center: torch.Tensor, tp):
+        position = gv.position.clone()
         prev_vel_local = tp.rotate_to_local(gv.prev_velocities.view(-1, 3)).view(gv.prev_velocities.shape)
-        pos_local = tp.rotate_to_local(gv.position - nozzle_center)
+        pos_local = tp.rotate_to_local(position - nozzle_center)
         if tp.is_rotating_right:
             prev_vel_local[:, :, 1] *= -1
             pos_local[:, 1] *= -1
+        pos_local = pos_local + nozzle_center
         scaling_pos = torch.tensor([3 * 0.0125, 3 * 0.0125, 0.02], device=gv.device)
         scaled_position = (pos_local - nozzle_center) / scaling_pos
         node_features, global_features = self.preprocessor(most_recent_position=pos_local[spatial_mask], velocity_sequence=prev_vel_local[spatial_mask], pressure_sequence=gv.prev_pressures[spatial_mask], z_floor=gv.z_floor)
         node_latent = self._encode(node_features, global_features)
         node_latent = self._process(node_latent, torch.zeros_like(scaled_position[spatial_mask, 0]), scaled_position[spatial_mask])
         norm_pred_vel, norm_pred_pos, norm_pred_press = self._decode(node_latent, global_features)
-
+        velocity = torch.zeros_like(gv.position)
+        pressure = torch.zeros(gv.position.shape[0], device=gv.device, dtype=torch.float16)
+        next_pos = gv.position.clone()
         pred_vel_local = (norm_pred_vel * gv.vel_std + gv.vel_mean).to(torch.float32)
         pred_disp_local = (norm_pred_pos * gv.vel_std + gv.vel_mean).to(torch.float32) * gv.cfg.dt
         if tp.is_rotating_right:
@@ -475,36 +479,18 @@ class Surrogate(nn.Module):
             pred_disp_local[:, 1] *= -1
         pred_vel_world = tp.rotate_to_world(pred_vel_local).to(torch.float32)
         pred_disp_world = tp.rotate_to_world(pred_disp_local).to(torch.float32)
-
-        # Reuse the existing state tensors instead of allocating full-state copies.
-        gv.velocity.zero_()
-        gv.pressure.zero_()
-        gv.position[spatial_mask] += pred_vel_world * gv.cfg.dt
-        gv.velocity[spatial_mask] = pred_vel_world
-        gv.pressure[spatial_mask] = (norm_pred_press.squeeze(-1) * gv.press_std + gv.press_mean).to(gv.pressure.dtype)
-
-        bd_mask = gv.position[:, -1] <= 0
-        gv.velocity[bd_mask] = 0.0
-        gv.position[bd_mask, -1] = 0
-
+        velocity[spatial_mask] = pred_vel_world
+        next_pos[spatial_mask] = gv.position[spatial_mask] + velocity[spatial_mask] * gv.cfg.dt
+        pressure[spatial_mask] = (norm_pred_press.squeeze(-1) * gv.press_std + gv.press_mean).to(pressure.dtype)
+        bd_mask = next_pos[:, -1] <= 0
+        velocity[bd_mask] = 0.0
+        next_pos[bd_mask, -1] = 0
         nozzle_vel_world = torch.tensor([tp.nozzle_velocity[0], tp.nozzle_velocity[1], -gv.flow_velocity], dtype=torch.float32, device=gv.device)
-        gv.velocity[gv.nozzle_ids] = nozzle_vel_world
-        gv.position[gv.nozzle_ids] = gv.position[gv.nozzle_ids] + tp.nozzle_move * gv.cfg.dt
-"""
-Deep learning surrogate for 3DCP simulation.
-"""
-import numpy as np
-import torch
-import torch.nn as nn
-from npfem import encoder_processor_decoder
-from npfem import global_variables as gv
-from npfem import mesh
-
-_ADD_NODES_CONST = 0.17
-
-
-class Surrogate(nn.Module):
-    """Encoder-processor-decoder surrogate model for the printing simulation."""
+        velocity[gv.nozzle_ids] = nozzle_vel_world
+        next_pos[gv.nozzle_ids] = gv.position[gv.nozzle_ids] + tp.nozzle_move * gv.cfg.dt
+        gv.position = next_pos
+        gv.velocity = velocity
+        gv.pressure = pressure
 
     def __init__(self, n_in_features: int, latent_dim: int, n_mlp_layers: int, n_attn_heads: int, n_attn_layers: int, attn_dropout: float):
         super().__init__()
