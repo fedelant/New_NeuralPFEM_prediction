@@ -38,14 +38,14 @@ pos_min : [-0.2234359, -0.22346082, -0.00244924]
 dt: 0.02
 
 # --- Toolpath ---
-toolpath_type: "dat" 
+toolpath_type: "file" 
 toolpath_n_points: 100
-toolpath_scale: 7
+toolpath_scale: 1
 # arc toolpath parameters
-toolpath_radius: 2
+toolpath_radius: 0.3
 # sinusoidal toolpath parameters
-toolpath_amplitude: 0.3
-toolpath_wavelength: 1.5
+toolpath_amplitude: 0.05
+toolpath_wavelength: 0.2
 
 # capire come gestire toolpath 
 # accorpare qui parametri input o tenerli separati?

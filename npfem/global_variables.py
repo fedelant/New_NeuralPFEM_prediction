@@ -1,4 +1,3 @@
-from typing import List
 import torch
 
 # Example index
@@ -42,13 +41,6 @@ h0 = None
 was_z_transition = None
 second_layer_init_done = None
 z_floor = None
-
-# Outputs
-position_output: List = []
-velocity_output: List = []
-pressure_output: List = []
-cells_output: List = []
-free_surf_output: List = []
 
 # Cuda device
 device = None

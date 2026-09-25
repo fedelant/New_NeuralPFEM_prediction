@@ -37,8 +37,7 @@ class MeshGenerator:
         w2 = torch.sum(w * w, dim=1).unsqueeze(1)
 
         num = u2 * v_x_w + v2 * w_x_u + w2 * u_x_v
-
-        valid = torch.abs(denom) > 1e-14
+        valid = torch.abs(denom) > 1e-30
         R = torch.full((pts.shape[0],), float('inf'), device=pts.device, dtype=pts.dtype)
 
         if valid.any():
@@ -47,9 +46,9 @@ class MeshGenerator:
 
         return R
 
-    def _boundary_faces_3d(self, simplices: torch.Tensor, num_nodes: int) -> torch.Tensor:
-        """Ultra-fast GPU boundary face extraction using 64-bit tensor hashing."""
-        # 1. Stack all faces
+    def _boundary_faces_3d(self, simplices: torch.Tensor) -> torch.Tensor:
+        """Robust boundary face extraction using native PyTorch 2D unique."""
+        # 1. Stack all 4 faces of each tetrahedron
         faces = torch.cat([
             simplices[:, [0, 1, 2]],
             simplices[:, [0, 1, 3]],
@@ -57,57 +56,63 @@ class MeshGenerator:
             simplices[:, [1, 2, 3]]
         ], dim=0)
         
-        # 2. Sort rows (torch.sort returns a tuple of values and indices, we just want values)
+        # 2. Sort the node indices of each face so identical faces match perfectly
         faces, _ = torch.sort(faces, dim=1)
-        faces = faces.to(torch.int64) # Prevent overflow!
         
-        base = num_nodes + 1
+        # 3. Find unique faces and their counts using PyTorch native 2D unique
+        unique_faces, counts = torch.unique(faces, dim=0, return_counts=True)
         
-        # 3. Hash into 1D
-        hashed_faces = faces[:, 0] + faces[:, 1] * base + faces[:, 2] * (base ** 2)
+        # 4. A face is a boundary face if it is not shared by another tetrahedron (count == 1)
+        boundary_faces = unique_faces[counts == 1]
         
-        # 4. 1D Unique on GPU
-        unique_hashes, counts = torch.unique(hashed_faces, return_counts=True)
-        boundary_hashes = unique_hashes[counts == 1]
-        
-        # 5. Unhash back to 3D
-        f0 = boundary_hashes % base
-        f1 = (boundary_hashes // base) % base
-        f2 = boundary_hashes // (base ** 2)
-        
-        return torch.stack((f0, f1, f2), dim=1)
+        return boundary_faces
 
-    def generate_mesh(self, position: torch.Tensor, 
-                      alpha: float = 150.0, 
-                      apply_node_rules: bool = True):
+    def generate_initial_mesh(self, position: torch.Tensor, apply_node_rules: bool = True):
+        pts = position.detach().cpu().numpy()
+
+        # unique xy positions and unique z layers
+        xy, inv = np.unique(pts[:, :2].round(6), axis=0, return_inverse=True)
+        inv = inv.ravel()
+        zs = np.unique(pts[:, 2].round(6))
+        layer = np.searchsorted(zs, pts[:, 2].round(6))
+
+        # idx[layer, xy_id] -> row index in pts
+        idx = -np.ones((len(zs), len(xy)), dtype=int)
+        idx[layer, inv] = np.arange(len(pts))
+        assert (idx >= 0).all(), "every layer must contain every xy point"
+
+        tri2d = Delaunay(xy).simplices
+
+        tets = []
+        for k in range(len(zs) - 1):
+            for t in tri2d:
+                a, b, c = np.sort(t)          # global ordering => conforming faces
+                a0, b0, c0 = idx[k,     [a, b, c]]
+                a1, b1, c1 = idx[k + 1, [a, b, c]]
+                tets += [[a0, b0, c0, c1],
+                        [a0, b0, b1, c1],
+                        [a0, a1, b1, c1]]
+        cells = torch.as_tensor(tets, dtype=torch.long, device=position.device)
+        boundary_nodes = torch.unique(self._boundary_faces_3d(cells))
+        return cells, boundary_nodes
+
+    def generate_mesh(self, position: torch.Tensor, alpha: float = 400.0):
         """3D Delaunay + alpha-shape filtering."""
-        num_nodes = position.shape[0]
         device = position.device
 
-        # 1. Delaunay
         tri = Delaunay(position.detach().cpu().numpy(), qhull_options="Qt Qbb Qc")
         simplices = torch.as_tensor(tri.simplices, dtype=torch.long, device=device)
 
-        # 2. Alpha-shape filter
         radius = self._circumradius_3d(position[simplices])
+        
+        # Only apply the alpha filter here
         mask = radius <= (1.0 / alpha)
-
-        # 3. Node rules
-        if apply_node_rules:
-            nozzle_nodes = torch.arange(num_nodes, device=device) < gv.n_nozzle_nodes
-            new_nodes = torch.arange(num_nodes, device=device) >= num_nodes - gv.n_nozzle_nodes
-            others = ~(nozzle_nodes | new_nodes)
-            has_euclidean = nozzle_nodes[simplices].any(dim=1)
-            internal_cells = others[simplices].any(dim=1)
-            mask |= ~internal_cells
-            mask &= ~(has_euclidean & internal_cells)
-
         cells = simplices[mask]
 
         if cells.numel() == 0:
-            raise ValueError(f"No elements survive alpha filter (alpha={alpha}, threshold={1.0 / alpha:.4f}, min circumradius={radius.min().item():.4f}).")
+            raise ValueError(f"No elements survive alpha filter.")
 
-        boundary_nodes = torch.unique(self._boundary_faces_3d(cells, num_nodes=num_nodes))
+        boundary_nodes = torch.unique(self._boundary_faces_3d(cells))
         return cells, boundary_nodes
 
     '''

@@ -37,10 +37,10 @@ parameters:
 # Single prediction
 # ------------------------------------------------------------
 single:
-  nozzle_radius: 0.01
-  nozzle_height: 0.01
-  printing_velocity: 0.14
-  flow_velocity: 0.12
+  nozzle_radius: 0.007
+  nozzle_height: 0.008
+  printing_velocity: 0.1
+  flow_velocity: 0.08
 
   density: 2227.0
   yield_stress: 681.0

@@ -14,8 +14,8 @@ import yaml
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from npfem import global_variables as gv
-from npfem import surrogate, toolpath, write_vtk
+from npfem import global_variables as gv, write_output
+from npfem import surrogate, toolpath
 
 
 def initialize_simulator() -> Any:
@@ -52,8 +52,58 @@ def initialize_simulator() -> Any:
 
 
 def build_toolpath(printing_speed: float, flow_speed: float):
-    # if cfg.toolpath_type == "straight":
-    return toolpath.Toolpath.make_straight(printing_speed, flow_speed)
+    if gv.cfg.toolpath_type == "straight":
+        return toolpath.Toolpath.make_straight(printing_speed, flow_speed)
+
+    if gv.cfg.toolpath_type == "arc":
+        return toolpath.Toolpath.make_arc(
+            gv.cfg.toolpath_n_points,
+            gv.cfg.toolpath_radius,
+            gv.cfg.toolpath_scale,
+            printing_speed,
+            flow_speed,
+        )
+    if gv.cfg.toolpath_type == "sinusoid":
+        return toolpath.Toolpath.make_sinusoid(
+            gv.cfg.toolpath_n_points,
+            gv.cfg.toolpath_amplitude,
+            gv.cfg.toolpath_wavelength,
+            gv.cfg.toolpath_scale,
+            printing_speed,
+            flow_speed,
+        )
+    if gv.cfg.toolpath_type == "circle":
+        return toolpath.make_circle(
+            printing_speed, 
+            flow_speed, 
+            radius=0.1, 
+            n_points=100, 
+            device=gv.device)
+    if gv.cfg.toolpath_type == "square":
+        return toolpath.make_square(
+            printing_speed, 
+            flow_speed, 
+            side=0.15,
+            corner_radius=0.03,
+            n_points=100, 
+            device=gv.device)
+    if gv.cfg.toolpath_type == "triangle":
+        return toolpath.make_triangle(
+            printing_speed, 
+            flow_speed, 
+            side=0.2,
+            corner_radius=0.03,
+            n_points=100, 
+            device=gv.device)
+    if gv.cfg.toolpath_type == "file":
+        return toolpath.make_from_file(
+            filepath="./input/toolpaths/toolpath_medium.txt", 
+            scale=1,#cfg.toolpath_scale,
+            printing_speed=printing_speed,
+            flow_speed=flow_speed,
+            device=gv.device,
+        )
+    
     """
     other to be added and to understand whats the best way to handle this.
     """
@@ -123,6 +173,8 @@ def initialize_prediction_state() -> None:
         device=gv.device,
     )
     gv.n_nozzle_nodes = gv.nozzle_ids.shape[0]
+    gv.node_layer = torch.ones(gv.position.shape[0], dtype=torch.int, device=gv.device) 
+    gv.active = torch.ones(gv.position.shape[0], dtype=torch.bool, device=gv.device)
 
     gv.vel_mean = torch.tensor(gv.cfg.vel_mean, device=gv.device)
     gv.vel_std = torch.tensor(gv.cfg.vel_std, device=gv.device)
@@ -168,23 +220,23 @@ def run_prediction() -> None:
     _reset_prediction_outputs()
     write_step = 0
     for step in tqdm(
-        range(100), desc=f"Predicting {gv.example_i}"
+        range(5000), desc=f"Predicting {gv.example_i}"
     ):  # fino alla fine del toolpath, o fino a un numero massimo di step
         gv.model.learned_update()
-        # if step % 3 == 0 : # make cfg.
-        write_vtk.write_step(
-            gv.position,
-            gv.velocity,
-            gv.pressure,
-            gv.cells,
-            output_dir=os.path.join(
-                ".", "output", gv.cfg.model_name, f"{gv.example_i}_vtk"
-            ),
-            step_idx=write_step,
-            strain_rate=None,
-            free_surf=None,
-        )
-        write_step += 1
+        if step % 3 == 0 : # make cfg.
+            write_output.write_step(
+                gv.position,
+                gv.velocity,
+                gv.pressure,
+                gv.cells,
+                output_dir=os.path.join(
+                    ".", "output", gv.cfg.model_name, f"{gv.example_i}_vtk"
+                ),
+                step_idx=write_step,
+                strain_rate=None,
+                free_surf=gv.free_surf,
+            )
+            write_step += 1
 
         gv.prev_velocities = torch.cat(
             [gv.prev_velocities[:, 1:], gv.velocity.unsqueeze(1)], dim=1

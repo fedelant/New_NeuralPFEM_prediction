@@ -1,3 +1,5 @@
 npfem/__pycache__/
 output/
 models/
+input/toolpaths/
+.hydra/
