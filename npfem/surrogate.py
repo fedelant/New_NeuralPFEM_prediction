@@ -59,16 +59,16 @@ class Surrogate(nn.Module):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _boundary_nodes(cells: np.ndarray, n_nozzle: int):
-        mask = np.any(cells < n_nozzle, axis=1)
-        nodes = np.unique(cells[mask])
+    def _boundary_nodes(cells: torch.Tensor, n_nozzle: int):
+        mask = (cells < n_nozzle).any(dim=1)
+        nodes = torch.unique(cells[mask])
         nozzle_side = nodes[nodes < n_nozzle]
         deposition_side = nodes[nodes >= n_nozzle]
         return nozzle_side, deposition_side
 
     @staticmethod
     def _add_nodes_check(position: torch.Tensor, nozzle_side, other_side):
-        if nozzle_side.size == 0 or other_side.size == 0:
+        if nozzle_side.numel() == 0 or other_side.numel() == 0:
             return False, 0.0, 0.0
         mean_z_nozzle = position[nozzle_side, 2].mean()
         mean_z_other = position[other_side, 2].mean()
@@ -110,9 +110,9 @@ class Surrogate(nn.Module):
     def _add_nodes_free_fall(self, nozzle_vel_world: torch.Tensor):
         if gv.cells is None:
             return
-        nozzle_cells = gv.cells[np.any(gv.cells < gv.n_nozzle_nodes, axis=1)]
+        nozzle_cells = gv.cells[(gv.cells < gv.n_nozzle_nodes).any(dim=1)]
         nozzle_side, deposition_side = self._boundary_nodes(nozzle_cells, gv.n_nozzle_nodes)
-        if deposition_side.size == 0:
+        if deposition_side.numel() == 0:
             return
         add_check, mean_z_nozzle, mean_z_other = self._add_nodes_check(gv.position, nozzle_side, deposition_side)
         if not add_check:
