@@ -443,7 +443,10 @@ class Surrogate(nn.Module):
         if nodes_to_remesh.numel() < 4:
             return
 
-        new_cells_local, _ = self.mesher.generate_mesh(gv.position[nodes_to_remesh])
+        new_cells_local = self.mesher.generate_mesh(
+            gv.position[nodes_to_remesh],
+            return_boundary_nodes=False,
+        )
         new_cells = nodes_to_remesh[new_cells_local]
         new_cell_active = active[new_cells]
         valid_new_cells = new_cells[new_cell_active.any(dim=1)]

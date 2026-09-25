@@ -96,8 +96,12 @@ class MeshGenerator:
         boundary_nodes = torch.unique(self._boundary_faces_3d(cells))
         return cells, boundary_nodes
 
-    def generate_mesh(self, position: torch.Tensor, alpha: float = 400.0):
-        """3D Delaunay + alpha-shape filtering."""
+    def generate_mesh(self, position: torch.Tensor, alpha: float = 400.0, return_boundary_nodes: bool = True):
+        """3D Delaunay + alpha-shape filtering.
+
+        Delaunay itself remains CPU/SciPy. When boundary nodes are not needed,
+        skip the extra GPU boundary-face reduction.
+        """
         device = position.device
 
         tri = Delaunay(position.detach().cpu().numpy(), qhull_options="Qt Qbb Qc")
@@ -112,8 +116,10 @@ class MeshGenerator:
         if cells.numel() == 0:
             raise ValueError(f"No elements survive alpha filter.")
 
-        boundary_nodes = torch.unique(self._boundary_faces_3d(cells))
-        return cells, boundary_nodes
+        if return_boundary_nodes:
+            boundary_nodes = torch.unique(self._boundary_faces_3d(cells))
+            return cells, boundary_nodes
+        return cells
 
     '''
     def calculate_shape_functions(self, elem_coords: torch.Tensor, point: torch.Tensor):
