@@ -184,6 +184,34 @@ def initialize_prediction_state() -> None:
     gv.pos_max = torch.tensor(gv.cfg.pos_max, device=gv.device)
 
 
+def _update_history_buffers() -> None:
+    """Update history in preallocated GPU buffers to avoid per-step allocations."""
+    history_len = gv.prev_velocities.shape[1]
+    needs_reset = (
+        not hasattr(gv, "_history_velocity_buffer")
+        or gv._history_velocity_buffer.shape != gv.prev_velocities.shape
+        or gv._history_pressure_buffer.shape != gv.prev_pressures.shape
+    )
+
+    if needs_reset:
+        gv._history_velocity_buffer = torch.empty_like(gv.prev_velocities)
+        gv._history_pressure_buffer = torch.empty_like(gv.prev_pressures)
+
+    gv._history_velocity_buffer[:, :-1].copy_(gv.prev_velocities[:, 1:])
+    gv._history_velocity_buffer[:, -1].copy_(gv.velocity)
+    gv.prev_velocities, gv._history_velocity_buffer = (
+        gv._history_velocity_buffer,
+        gv.prev_velocities,
+    )
+
+    gv._history_pressure_buffer[:, :-1].copy_(gv.prev_pressures[:, 1:])
+    gv._history_pressure_buffer[:, -1].copy_(gv.pressure)
+    gv.prev_pressures, gv._history_pressure_buffer = (
+        gv._history_pressure_buffer,
+        gv.prev_pressures,
+    )
+
+
 def _reset_prediction_outputs() -> None:
 
     gv.position_output = []
@@ -241,12 +269,7 @@ def run_prediction() -> None:
             )
             write_step += 1
 
-        gv.prev_velocities = torch.cat(
-            [gv.prev_velocities[:, 1:], gv.velocity.unsqueeze(1)], dim=1
-        )
-        gv.prev_pressures = torch.cat(
-            [gv.prev_pressures[:, 1:], gv.pressure.unsqueeze(1)], dim=1
-        )
+        _update_history_buffers()
 
         if gv.toolpath.is_finished:
             print(f"Toolpath finished at step {step}, stopping rollout.")
