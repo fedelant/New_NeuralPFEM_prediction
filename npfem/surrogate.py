@@ -287,10 +287,12 @@ class Surrogate(nn.Module):
         prev_cells = gv.cells
         if prev_cells is None:
             return
-        mask_contains_eucl = np.any(prev_cells < gv.n_nozzle_nodes, axis=1)
+        prev_cells = torch.as_tensor(prev_cells, dtype=torch.long, device=gv.device)
+        gv.cells = prev_cells
+        mask_contains_eucl = (prev_cells < gv.n_nozzle_nodes).any(dim=1)
         relevant_cells = prev_cells[mask_contains_eucl]
         connected_eucl, connected_non = self._boundary_nodes(relevant_cells, gv.n_nozzle_nodes)
-        if connected_eucl.size == 0 or connected_non.size == 0:
+        if connected_eucl.numel() == 0 or connected_non.numel() == 0:
             return
         add_check, mean_z_eucl, mean_z_non = self._add_nodes_check(gv.position, connected_eucl, connected_non)
         if not add_check:
