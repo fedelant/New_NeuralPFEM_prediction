@@ -110,7 +110,9 @@ class Surrogate(nn.Module):
     def _add_nodes_free_fall(self, nozzle_vel_world: torch.Tensor):
         if gv.cells is None:
             return
-        nozzle_cells = gv.cells[(gv.cells < gv.n_nozzle_nodes).any(dim=1)]
+        cells = torch.as_tensor(gv.cells, dtype=torch.long, device=gv.device)
+        gv.cells = cells
+        nozzle_cells = cells[(cells < gv.n_nozzle_nodes).any(dim=1)]
         nozzle_side, deposition_side = self._boundary_nodes(nozzle_cells, gv.n_nozzle_nodes)
         if deposition_side.numel() == 0:
             return
