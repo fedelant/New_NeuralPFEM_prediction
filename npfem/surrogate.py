@@ -360,7 +360,7 @@ class Surrogate(nn.Module):
         has_new = new_nodes[cells].any(dim=1)
         internal_cells = others[cells].any(dim=1)
 
-        free_surf = torch.from_numpy(gv.free_surf).to(gv.device)
+        free_surf = torch.as_tensor(gv.free_surf, dtype=torch.bool, device=gv.device)
         all_free_surf = free_surf[cells].all(dim=1)
 
         simplex_layers = gv.node_layer[cells]
